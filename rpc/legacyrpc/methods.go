@@ -442,7 +442,7 @@ func getBalance(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 		accountName = *cmd.Account
 	}
 	if accountName == "*" {
-		balance, err = w.CalculateBalance(int32(*cmd.MinConf), false)
+		balance, err = w.CalculateBalance(int32(*cmd.MinConf), cmd.Token == 1)
 		if err != nil {
 			return nil, err
 		}
@@ -490,6 +490,8 @@ func getBlockCount(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 // information about the current state of btcwallet.
 // exist.
 func getInfo(icmd interface{}, w *wallet.Wallet, chainClient *chain.RPCClient) (interface{}, error) {
+	cmd := icmd.(*btcjson.GetBalanceCmd)
+
 	// Call down to btcd for all of the information in this command known
 	// by them.
 	info, err := chainClient.GetInfo()
@@ -497,7 +499,7 @@ func getInfo(icmd interface{}, w *wallet.Wallet, chainClient *chain.RPCClient) (
 		return nil, err
 	}
 
-	bal, err := w.CalculateBalance(1, false)
+	bal, err := w.CalculateBalance(1, cmd.Token == 1)
 	if err != nil {
 		return nil, err
 	}
