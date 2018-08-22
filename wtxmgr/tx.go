@@ -128,6 +128,7 @@ type Credit struct {
 	PkScript     []byte
 	Received     time.Time
 	FromCoinBase bool
+	IsYDR        bool
 }
 
 // Store implements a transaction store for storing and managing wallet
@@ -696,6 +697,33 @@ func (s *Store) rollback(ns walletdb.ReadWriteBucket, height int32) error {
 	return putMinedBalance(ns, minedBalance)
 }
 
+// TxOutSeparatorIdx returns the separator TxOut (Value == 0)
+func TxOutSeparatorIdx(msgTx *wire.MsgTx) int {
+	for idx, txOut := range msgTx.TxOut {
+		if txOut.Value == 0 {
+			return idx
+		}
+	}
+	return -1
+}
+
+// IsYDR return wehter the output is YDR
+func IsYDR(msgTx *wire.MsgTx, txOutIdx uint32) bool {
+	sepIdx := TxOutSeparatorIdx(msgTx)
+
+	if sepIdx >= 0 {
+		return txOutIdx > uint32(sepIdx)
+	}
+
+	return false
+
+	/** Use this to optimize blocksize later
+	inputOutpoint := tx.MsgTx().TxIn[0].PreviousOutPoint
+	entry := view.LookupEntry(inputOutpoint)
+	return entry.IsYDR()
+	*/
+}
+
 // UnspentOutputs returns all unspent received transaction outputs.
 // The order is undefined.
 func (s *Store) UnspentOutputs(ns walletdb.ReadBucket) ([]Credit, error) {
@@ -740,6 +768,7 @@ func (s *Store) UnspentOutputs(ns walletdb.ReadBucket) ([]Credit, error) {
 			PkScript:     txOut.PkScript,
 			Received:     rec.Received,
 			FromCoinBase: blockchain.IsCoinBaseTx(&rec.MsgTx),
+			IsYDR:        IsYDR(&rec.MsgTx, op.Index),
 		}
 		unspent = append(unspent, cred)
 		return nil
