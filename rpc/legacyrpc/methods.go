@@ -442,7 +442,7 @@ func getBalance(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 		accountName = *cmd.Account
 	}
 	if accountName == "*" {
-		balance, err = w.CalculateBalance(int32(*cmd.MinConf))
+		balance, err = w.CalculateBalance(int32(*cmd.MinConf), false)
 		if err != nil {
 			return nil, err
 		}
@@ -497,7 +497,7 @@ func getInfo(icmd interface{}, w *wallet.Wallet, chainClient *chain.RPCClient) (
 		return nil, err
 	}
 
-	bal, err := w.CalculateBalance(1)
+	bal, err := w.CalculateBalance(1, false)
 	if err != nil {
 		return nil, err
 	}
