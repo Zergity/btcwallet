@@ -2340,7 +2340,7 @@ func (s creditSlice) Swap(i, j int) {
 // contained within it will be considered.  If we know nothing about a
 // transaction an empty array will be returned.
 func (w *Wallet) ListUnspent(minconf, maxconf int32,
-	addresses map[string]struct{}) ([]*btcjson.ListUnspentResult, error) {
+	addresses map[string]struct{}, isYDR bool) ([]*btcjson.ListUnspentResult, error) {
 
 	var results []*btcjson.ListUnspentResult
 	err := walletdb.View(w.db, func(tx walletdb.ReadTx) error {
@@ -2361,6 +2361,10 @@ func (w *Wallet) ListUnspent(minconf, maxconf int32,
 		results = make([]*btcjson.ListUnspentResult, 0, len(unspent))
 		for i := range unspent {
 			output := unspent[i]
+
+			if output.IsYDR != isYDR {
+				continue
+			}
 
 			// Outputs with fewer confirmations than the minimum or more
 			// confs than the maximum are excluded.
@@ -2459,7 +2463,6 @@ func (w *Wallet) ListUnspent(minconf, maxconf int32,
 				Amount:        output.Amount.ToBTC(),
 				Confirmations: int64(confs),
 				Spendable:     spendable,
-				IsYDR:         output.IsYDR,
 			}
 
 			// BUG: this should be a JSON array so that all
