@@ -80,6 +80,7 @@ var rpcHandlers = map[string]struct {
 	"getaccountaddress":      {handler: getAccountAddress},
 	"getaddressesbyaccount":  {handler: getAddressesByAccount},
 	"getbalance":             {handler: getBalance},
+	"getbalance1":            {handler: getBalance1},
 	"getbestblockhash":       {handler: getBestBlockHash},
 	"getblockcount":          {handler: getBlockCount},
 	"getinfo":                {handlerWithChain: getInfo},
@@ -443,6 +444,38 @@ func getBalance(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 	}
 	if accountName == "*" {
 		balance, err = w.CalculateBalance(int32(*cmd.MinConf), false)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		var account uint32
+		account, err = w.AccountNumber(waddrmgr.KeyScopeBIP0044, accountName)
+		if err != nil {
+			return nil, err
+		}
+		bals, err := w.CalculateAccountBalances(account, int32(*cmd.MinConf))
+		if err != nil {
+			return nil, err
+		}
+		balance = bals.Spendable
+	}
+	return balance.ToBTC(), nil
+}
+
+// getBalance1 handles a getbalance request by returning the balance for an
+// account (wallet), or an error if the requested account does not
+// exist.
+func getBalance1(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
+	cmd := icmd.(*btcjson.GetBalance1Cmd)
+
+	var balance btcutil.Amount
+	var err error
+	accountName := "*"
+	if cmd.Account != nil {
+		accountName = *cmd.Account
+	}
+	if accountName == "*" {
+		balance, err = w.CalculateBalance(int32(*cmd.MinConf), true)
 		if err != nil {
 			return nil, err
 		}
