@@ -103,6 +103,7 @@ var rpcHandlers = map[string]struct {
 	"sendfrom":               {handlerWithChain: sendFrom},
 	"sendmany":               {handler: sendMany},
 	"sendtoaddress":          {handler: sendToAddress},
+	"sendtoaddress1":         {handler: sendToAddress1},
 	"settxfee":               {handler: setTxFee},
 	"signmessage":            {handler: signMessage},
 	"signrawtransaction":     {handlerWithChain: signRawTransaction},
@@ -1532,6 +1533,43 @@ func sendMany(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 // the TxID for the created transaction is returned.
 func sendToAddress(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 	cmd := icmd.(*btcjson.SendToAddressCmd)
+
+	// Transaction comments are not yet supported.  Error instead of
+	// pretending to save them.
+	if !isNilOrEmpty(cmd.Comment) || !isNilOrEmpty(cmd.CommentTo) {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCUnimplemented,
+			Message: "Transaction comments are not yet supported",
+		}
+	}
+
+	amt, err := btcutil.NewAmount(cmd.Amount)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check that signed integer parameters are positive.
+	if amt < 0 {
+		return nil, ErrNeedPositiveAmount
+	}
+
+	// Mock up map of address and amount pairs.
+	pairs := map[string]btcutil.Amount{
+		cmd.Address: amt,
+	}
+
+	// sendtoaddress always spends from the default account, this matches bitcoind
+	return sendPairs(w, pairs, waddrmgr.DefaultAccountNum, 1,
+		txrules.DefaultRelayFeePerKb)
+}
+
+// sendToAddress handles a sendtoaddress RPC request by creating a new
+// transaction spending unspent transaction outputs for a wallet to another
+// payment address.  Leftover inputs not sent to the payment address or a fee
+// for the miner are sent back to a new address in the wallet.  Upon success,
+// the TxID for the created transaction is returned.
+func sendToAddress1(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
+	cmd := icmd.(*btcjson.SendToAddress1Cmd)
 
 	// Transaction comments are not yet supported.  Error instead of
 	// pretending to save them.
