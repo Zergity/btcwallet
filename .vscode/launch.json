@@ -14,7 +14,7 @@
             "host": "127.0.0.1",
             "program": "${workspaceFolder}",
             "env": {},
-            "args": ["--simnet", "--usespv", "--connect=localhost:18000", "--rpclisten=:20013", "--username=a", "--password=a", "--createtemp", "--appdata=${TEMP}/btcwallet"],
+            "args": ["--simnet", "--usespv", "--connect=localhost", "--username=a", "--password=a", "--createtemp", "--appdata=${LOCALAPPDATA}/btcwallet"],
             "showLog": false
         }
     ]
