@@ -3,7 +3,8 @@ import:
 - package: github.com/coreos/bbolt
   version: 4f5275f4ebbf6fe7cb772de987fa96ee674460a7
 - package: github.com/btcsuite/btcd
-  version: fdfc19097e7ac6b57035062056f5b7b4638b8898
+  repo: https://github.com/Zergity/btcd.git
+  version: 2t
   subpackages:
   - blockchain
   - btcec
@@ -18,7 +19,8 @@ import:
   subpackages:
   - hdkeychain
 - package: github.com/lightninglabs/neutrino
-  version: 8401b99f3f0698bc6aa26c3d702dd583e51f70c2
+  repo: https://github.com/Zergity/neutrino.git
+  version: 2t
 - package: github.com/btcsuite/golangcrypto
   subpackages:
   - nacl/secretbox
