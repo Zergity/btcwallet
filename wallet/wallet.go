@@ -1389,7 +1389,7 @@ type Balances struct {
 // This function is much slower than it needs to be since transactions outputs
 // are not indexed by the accounts they credit to, and all unspent transaction
 // outputs must be iterated.
-func (w *Wallet) CalculateAccountBalances(account uint32, confirms int32) (Balances, error) {
+func (w *Wallet) CalculateAccountBalances(account uint32, confirms int32, isYDR bool) (Balances, error) {
 	var bals Balances
 	err := walletdb.View(w.db, func(tx walletdb.ReadTx) error {
 		addrmgrNs := tx.ReadBucket(waddrmgrNamespaceKey)
@@ -1405,6 +1405,10 @@ func (w *Wallet) CalculateAccountBalances(account uint32, confirms int32) (Balan
 		}
 		for i := range unspent {
 			output := &unspent[i]
+
+			if output.IsYDR != isYDR {
+				continue
+			}
 
 			var outputAcct uint32
 			_, addrs, _, err := txscript.ExtractPkScriptAddrs(

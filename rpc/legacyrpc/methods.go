@@ -455,7 +455,7 @@ func getBalance(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 		if err != nil {
 			return nil, err
 		}
-		bals, err := w.CalculateAccountBalances(account, int32(*cmd.MinConf))
+		bals, err := w.CalculateAccountBalances(account, int32(*cmd.MinConf), false)
 		if err != nil {
 			return nil, err
 		}
@@ -487,7 +487,7 @@ func getBalance1(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 		if err != nil {
 			return nil, err
 		}
-		bals, err := w.CalculateAccountBalances(account, int32(*cmd.MinConf))
+		bals, err := w.CalculateAccountBalances(account, int32(*cmd.MinConf), true)
 		if err != nil {
 			return nil, err
 		}
@@ -627,7 +627,7 @@ func getUnconfirmedBalance(icmd interface{}, w *wallet.Wallet) (interface{}, err
 	if err != nil {
 		return nil, err
 	}
-	bals, err := w.CalculateAccountBalances(account, 1)
+	bals, err := w.CalculateAccountBalances(account, 1, false)
 	if err != nil {
 		return nil, err
 	}
