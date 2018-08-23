@@ -102,6 +102,7 @@ var rpcHandlers = map[string]struct {
 	"listunspent2":           {handler: listUnspent2},
 	"lockunspent":            {handler: lockUnspent},
 	"sendfrom":               {handlerWithChain: sendFrom},
+	"sendfrom1":              {handlerWithChain: sendFrom1},
 	"sendmany":               {handler: sendMany},
 	"sendtoaddress":          {handler: sendToAddress},
 	"sendtoaddress1":         {handler: sendToAddress1},
@@ -1408,6 +1409,11 @@ func lockUnspent(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 func makeOutputs(pairs map[string]btcutil.Amount, chainParams *chaincfg.Params) ([]*wire.TxOut, error) {
 	outputs := make([]*wire.TxOut, 0, len(pairs))
 	for addrStr, amt := range pairs {
+		if amt == 0 {
+			outputs = append(outputs, wire.NewTxOut(int64(0), nil))
+			continue
+		}
+
 		addr, err := btcutil.DecodeAddress(addrStr, chainParams)
 		if err != nil {
 			return nil, fmt.Errorf("cannot decode address: %s", err)
@@ -1499,6 +1505,52 @@ func sendFrom(icmd interface{}, w *wallet.Wallet, chainClient *chain.RPCClient) 
 		return nil, err
 	}
 	pairs := map[string]btcutil.Amount{
+		cmd.ToAddress: amt,
+	}
+
+	return sendPairs(w, pairs, account, minConf,
+		txrules.DefaultRelayFeePerKb)
+}
+
+// sendFrom1 handles a sendfrom RPC request by creating a new transaction
+// spending unspent transaction outputs for a wallet to another payment
+// address.  Leftover inputs not sent to the payment address or a fee for
+// the miner are sent back to a new address in the wallet.  Upon success,
+// the TxID for the created transaction is returned.
+func sendFrom1(icmd interface{}, w *wallet.Wallet, chainClient *chain.RPCClient) (interface{}, error) {
+	cmd := icmd.(*btcjson.SendFrom1Cmd)
+
+	// Transaction comments are not yet supported.  Error instead of
+	// pretending to save them.
+	if !isNilOrEmpty(cmd.Comment) || !isNilOrEmpty(cmd.CommentTo) {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCUnimplemented,
+			Message: "Transaction comments are not yet supported",
+		}
+	}
+
+	account, err := w.AccountNumber(
+		waddrmgr.KeyScopeBIP0044, cmd.FromAccount,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check that signed integer parameters are positive.
+	if cmd.Amount < 0 {
+		return nil, ErrNeedPositiveAmount
+	}
+	minConf := int32(*cmd.MinConf)
+	if minConf < 0 {
+		return nil, ErrNeedPositiveMinconf
+	}
+	// Create map of address and amount pairs.
+	amt, err := btcutil.NewAmount(cmd.Amount)
+	if err != nil {
+		return nil, err
+	}
+	pairs := map[string]btcutil.Amount{
+		"":            0,
 		cmd.ToAddress: amt,
 	}
 

@@ -45,6 +45,10 @@ func IsDustAmount(amount btcutil.Amount, scriptSize int, relayFeePerKb btcutil.A
 // Transactions with dust outputs are not standard and are rejected by mempools
 // with default policies.
 func IsDustOutput(output *wire.TxOut, relayFeePerKb btcutil.Amount) bool {
+	if output.Value == 0 && output.PkScript == nil {
+		return false
+	}
+
 	// Unspendable outputs which solely carry data are not checked for dust.
 	if txscript.GetScriptClass(output.PkScript) == txscript.NullDataTy {
 		return false

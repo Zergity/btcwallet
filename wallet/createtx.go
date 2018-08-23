@@ -104,6 +104,9 @@ func (s secretSource) GetScript(addr btcutil.Address) ([]byte, error) {
 func (w *Wallet) txToOutputs(outputs []*wire.TxOut, account uint32,
 	minconf int32, feeSatPerKb btcutil.Amount) (tx *txauthor.AuthoredTx, err error) {
 
+	// simple output structure first
+	isYDR := len(outputs) > 0 && outputs[0].Value == 0
+
 	chainClient, err := w.requireChainClient()
 	if err != nil {
 		return nil, err
@@ -118,7 +121,7 @@ func (w *Wallet) txToOutputs(outputs []*wire.TxOut, account uint32,
 			return err
 		}
 
-		eligible, err := w.findEligibleOutputs(dbtx, account, minconf, bs)
+		eligible, err := w.findEligibleOutputs(dbtx, account, minconf, bs, isYDR)
 		if err != nil {
 			return err
 		}
@@ -173,7 +176,7 @@ func (w *Wallet) txToOutputs(outputs []*wire.TxOut, account uint32,
 	return tx, nil
 }
 
-func (w *Wallet) findEligibleOutputs(dbtx walletdb.ReadTx, account uint32, minconf int32, bs *waddrmgr.BlockStamp) ([]wtxmgr.Credit, error) {
+func (w *Wallet) findEligibleOutputs(dbtx walletdb.ReadTx, account uint32, minconf int32, bs *waddrmgr.BlockStamp, isYDR bool) ([]wtxmgr.Credit, error) {
 	addrmgrNs := dbtx.ReadBucket(waddrmgrNamespaceKey)
 	txmgrNs := dbtx.ReadBucket(wtxmgrNamespaceKey)
 
@@ -190,6 +193,10 @@ func (w *Wallet) findEligibleOutputs(dbtx walletdb.ReadTx, account uint32, minco
 	eligible := make([]wtxmgr.Credit, 0, len(unspent))
 	for i := range unspent {
 		output := &unspent[i]
+
+		if output.IsYDR != isYDR {
+			continue
+		}
 
 		// Only include this output if it meets the required number of
 		// confirmations.  Coinbase transactions must have have reached
