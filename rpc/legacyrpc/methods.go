@@ -1406,14 +1406,15 @@ func lockUnspent(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 // strings to amounts.  This is used to create the outputs to include in newly
 // created transactions from a JSON object describing the output destinations
 // and amounts.
-func makeOutputs(pairs map[string]btcutil.Amount, chainParams *chaincfg.Params) ([]*wire.TxOut, error) {
-	outputs := make([]*wire.TxOut, 0, len(pairs))
-	for addrStr, amt := range pairs {
-		if amt == 0 {
-			outputs = append(outputs, wire.NewTxOut(int64(0), nil))
-			continue
-		}
+func makeOutputs(pairs, pairs1 map[string]btcutil.Amount, chainParams *chaincfg.Params) ([]*wire.TxOut, error) {
+	length := len(pairs)
+	if pairs1 != nil && len(pairs1) > 0 {
+		length += len(pairs1)
+	}
 
+	outputs := make([]*wire.TxOut, 0, length)
+
+	for addrStr, amt := range pairs {
 		addr, err := btcutil.DecodeAddress(addrStr, chainParams)
 		if err != nil {
 			return nil, fmt.Errorf("cannot decode address: %s", err)
@@ -1426,16 +1427,36 @@ func makeOutputs(pairs map[string]btcutil.Amount, chainParams *chaincfg.Params) 
 
 		outputs = append(outputs, wire.NewTxOut(int64(amt), pkScript))
 	}
+
+	if pairs1 != nil && len(pairs1) > 0 {
+		// output separator
+		outputs = append(outputs, wire.NewTxOut(int64(0), nil))
+
+		for addrStr, amt := range pairs1 {
+			addr, err := btcutil.DecodeAddress(addrStr, chainParams)
+			if err != nil {
+				return nil, fmt.Errorf("cannot decode address: %s", err)
+			}
+
+			pkScript, err := txscript.PayToAddrScript(addr)
+			if err != nil {
+				return nil, fmt.Errorf("cannot create txout script: %s", err)
+			}
+
+			outputs = append(outputs, wire.NewTxOut(int64(amt), pkScript))
+		}
+	}
+
 	return outputs, nil
 }
 
 // sendPairs creates and sends payment transactions.
 // It returns the transaction hash in string format upon success
 // All errors are returned in btcjson.RPCError format
-func sendPairs(w *wallet.Wallet, amounts map[string]btcutil.Amount,
+func sendPairs(w *wallet.Wallet, amounts, amounts1 map[string]btcutil.Amount,
 	account uint32, minconf int32, feeSatPerKb btcutil.Amount) (string, error) {
 
-	outputs, err := makeOutputs(amounts, w.ChainParams())
+	outputs, err := makeOutputs(amounts, amounts1, w.ChainParams())
 	if err != nil {
 		return "", err
 	}
@@ -1508,7 +1529,7 @@ func sendFrom(icmd interface{}, w *wallet.Wallet, chainClient *chain.RPCClient) 
 		cmd.ToAddress: amt,
 	}
 
-	return sendPairs(w, pairs, account, minConf,
+	return sendPairs(w, pairs, nil, account, minConf,
 		txrules.DefaultRelayFeePerKb)
 }
 
@@ -1550,11 +1571,10 @@ func sendFrom1(icmd interface{}, w *wallet.Wallet, chainClient *chain.RPCClient)
 		return nil, err
 	}
 	pairs := map[string]btcutil.Amount{
-		"":            0,
 		cmd.ToAddress: amt,
 	}
 
-	return sendPairs(w, pairs, account, minConf,
+	return sendPairs(w, nil, pairs, account, minConf,
 		txrules.DefaultRelayFeePerKb)
 }
 
@@ -1596,7 +1616,7 @@ func sendMany(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 		pairs[k] = amt
 	}
 
-	return sendPairs(w, pairs, account, minConf, txrules.DefaultRelayFeePerKb)
+	return sendPairs(w, pairs, nil, account, minConf, txrules.DefaultRelayFeePerKb)
 }
 
 // sendToAddress handles a sendtoaddress RPC request by creating a new
@@ -1632,7 +1652,7 @@ func sendToAddress(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 	}
 
 	// sendtoaddress always spends from the default account, this matches bitcoind
-	return sendPairs(w, pairs, waddrmgr.DefaultAccountNum, 1,
+	return sendPairs(w, pairs, nil, waddrmgr.DefaultAccountNum, 1,
 		txrules.DefaultRelayFeePerKb)
 }
 
@@ -1669,7 +1689,7 @@ func sendToAddress1(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 	}
 
 	// sendtoaddress always spends from the default account, this matches bitcoind
-	return sendPairs(w, pairs, waddrmgr.DefaultAccountNum, 1,
+	return sendPairs(w, nil, pairs, waddrmgr.DefaultAccountNum, 1,
 		txrules.DefaultRelayFeePerKb)
 }
 
