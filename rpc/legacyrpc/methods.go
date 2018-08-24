@@ -99,7 +99,7 @@ var rpcHandlers = map[string]struct {
 	"listsinceblock":         {handlerWithChain: listSinceBlock},
 	"listtransactions":       {handler: listTransactions},
 	"listunspent":            {handler: listUnspent},
-	"listunspent2":           {handler: listUnspent2},
+	"listunspent1":           {handler: listUnspent1},
 	"lockunspent":            {handler: lockUnspent},
 	"sendfrom":               {handlerWithChain: sendFrom},
 	"sendfrom1":              {handlerWithChain: sendFrom1},
@@ -1359,8 +1359,8 @@ func listUnspent(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 }
 
 // listUnspent handles the listunspent command.
-func listUnspent2(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
-	cmd := icmd.(*btcjson.ListUnspent2Cmd)
+func listUnspent1(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
+	cmd := icmd.(*btcjson.ListUnspent1Cmd)
 
 	var addresses map[string]struct{}
 	if cmd.Addresses != nil {
