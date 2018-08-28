@@ -152,13 +152,68 @@ func NewUnsignedTransaction(outputs []*wire.TxOut, relayFeePerKb btcutil.Amount,
 	}
 }
 
+// NewUnsignedBidAskCommand does
+func NewUnsignedBidAskCommand(outputs []*wire.TxOut, fetchInputs InputSource) (*AuthoredTx, error) {
+	targetAmount := h.SumOutputValues(outputs)
+
+	inputAmount, inputs, inputValues, scripts, err := fetchInputs(targetAmount)
+	if err != nil {
+		return nil, err
+	}
+	if inputAmount < targetAmount {
+		return nil, insufficientFundsError{}
+	}
+
+	// We count the types of inputs, which we'll use to estimate
+	// the vsize of the transaction.
+	var nested, p2wpkh, p2pkh int
+	for _, pkScript := range scripts {
+		switch {
+		// If this is a p2sh output, we assume this is a
+		// nested P2WKH.
+		case txscript.IsPayToScriptHash(pkScript):
+			nested++
+		case txscript.IsPayToWitnessPubKeyHash(pkScript):
+			p2wpkh++
+		default:
+			p2pkh++
+		}
+	}
+
+	unsignedTransaction := &wire.MsgTx{
+		Version:  wire.TxVersion,
+		TxIn:     inputs,
+		TxOut:    outputs,
+		LockTime: 0,
+	}
+	changeIndex := -1
+
+	for idx, out := range outputs {
+		if out.Value > 0 {
+			// replace the output value with total input value
+			unsignedTransaction.TxOut[idx] = wire.NewTxOut(int64(inputAmount), out.PkScript)
+			break
+		}
+	}
+
+	return &AuthoredTx{
+		Tx:              unsignedTransaction,
+		PrevScripts:     scripts,
+		PrevInputValues: inputValues,
+		TotalInput:      inputAmount,
+		ChangeIndex:     changeIndex,
+	}, nil
+}
+
 // RandomizeOutputPosition randomizes the position of a transaction's output by
 // swapping it with a random output.  The new index is returned.  This should be
 // done before signing.
 func RandomizeOutputPosition(outputs []*wire.TxOut, index int) int {
-	r := cprng.Int31n(int32(len(outputs)))
-	outputs[r], outputs[index] = outputs[index], outputs[r]
-	return int(r)
+	// temporary disable this for the output spliting hack
+	return index
+	//r := cprng.Int31n(int32(len(outputs)))
+	//outputs[r], outputs[index] = outputs[index], outputs[r]
+	//return int(r)
 }
 
 // RandomizeChangePosition randomizes the position of an authored transaction's

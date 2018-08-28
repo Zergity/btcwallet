@@ -96,6 +96,70 @@ func (s secretSource) GetScript(addr btcutil.Address) ([]byte, error) {
 	return msa.Script()
 }
 
+// txToBidAsk creates a signed transaction which includes each output from
+// outputs.  Previous outputs to reedeem are chosen from the passed account's
+// UTXO set and minconf policy. An additional output may be added to return
+// change to the wallet.  An appropriate fee is included based on the wallet's
+// current relay fee.  The wallet must be unlocked to create the transaction.
+func (w *Wallet) txToBidAsk(outputs []*wire.TxOut, account uint32,
+	minconf int32, feeSatPerKb btcutil.Amount) (tx *txauthor.AuthoredTx, err error) {
+
+	// simple output structure first
+	isYDR := outputs[0].Value == 0 && txscript.IsBidAskScript(outputs[0].PkScript)
+	// isBid := isYDR
+
+	chainClient, err := w.requireChainClient()
+	if err != nil {
+		return nil, err
+	}
+
+	err = walletdb.Update(w.db, func(dbtx walletdb.ReadWriteTx) error {
+		addrmgrNs := dbtx.ReadWriteBucket(waddrmgrNamespaceKey)
+
+		// Get current block's height and hash.
+		bs, err := chainClient.BlockStamp()
+		if err != nil {
+			return err
+		}
+
+		eligible, err := w.findEligibleOutputs(dbtx, account, minconf, bs, isYDR)
+		if err != nil {
+			return err
+		}
+
+		inputSource := makeInputSource(eligible)
+		tx, err = txauthor.NewUnsignedBidAskCommand(outputs, inputSource)
+		if err != nil {
+			return err
+		}
+
+		// Randomize change position, if change exists, before signing.
+		// This doesn't affect the serialize size, so the change amount
+		// will still be valid.
+		if tx.ChangeIndex >= 0 {
+			tx.RandomizeChangePosition()
+		}
+
+		return tx.AddAllInputScripts(secretSource{w.Manager, addrmgrNs})
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	err = validateMsgTx(tx.Tx, tx.PrevScripts, tx.PrevInputValues)
+	if err != nil {
+		return nil, err
+	}
+
+	if tx.ChangeIndex >= 0 && account == waddrmgr.ImportedAddrAccount {
+		changeAmount := btcutil.Amount(tx.Tx.TxOut[tx.ChangeIndex].Value)
+		log.Warnf("Spend from imported account produced change: moving"+
+			" %v from imported account into default account.", changeAmount)
+	}
+
+	return tx, nil
+}
+
 // txToOutputs creates a signed transaction which includes each output from
 // outputs.  Previous outputs to reedeem are chosen from the passed account's
 // UTXO set and minconf policy. An additional output may be added to return
@@ -147,13 +211,6 @@ func (w *Wallet) txToOutputs(outputs []*wire.TxOut, account uint32,
 			inputSource, changeSource)
 		if err != nil {
 			return err
-		}
-
-		// Randomize change position, if change exists, before signing.
-		// This doesn't affect the serialize size, so the change amount
-		// will still be valid.
-		if tx.ChangeIndex >= 0 {
-			tx.RandomizeChangePosition()
 		}
 
 		return tx.AddAllInputScripts(secretSource{w.Manager, addrmgrNs})

@@ -101,6 +101,8 @@ var rpcHandlers = map[string]struct {
 	"listunspent":            {handler: listUnspent},
 	"listunspent1":           {handler: listUnspent1},
 	"lockunspent":            {handler: lockUnspent},
+	"bidfrom":                {handlerWithChain: bidFrom},
+	"askfrom":                {handlerWithChain: askFrom},
 	"sendfrom":               {handlerWithChain: sendFrom},
 	"sendfrom1":              {handlerWithChain: sendFrom1},
 	"sendmany":               {handler: sendMany},
@@ -1486,6 +1488,88 @@ func sendPairs(w *wallet.Wallet, amounts, amounts1 map[string]btcutil.Amount,
 
 func isNilOrEmpty(s *string) bool {
 	return s == nil || *s == ""
+}
+
+// bidFrom handles
+func bidFrom(icmd interface{}, w *wallet.Wallet, chainClient *chain.RPCClient) (interface{}, error) {
+	cmd := icmd.(*btcjson.BidFromCmd)
+
+	account, err := w.AccountNumber(
+		waddrmgr.KeyScopeBIP0044, cmd.FromAccount,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check that signed integer parameters are positive.
+	if cmd.MaxSpend < 0 {
+		return nil, ErrNeedPositiveAmount
+	}
+	// Check that signed float parameters are positive.
+	if cmd.Ratio < 0 {
+		return nil, ErrNeedPositiveRatio
+	}
+	minConf := int32(*cmd.MinConf)
+	if minConf < 0 {
+		return nil, ErrNeedPositiveMinconf
+	}
+	// Create map of address and amount pairs.
+	maxspend, err := btcutil.NewAmount(cmd.MaxSpend)
+	if err != nil {
+		return nil, err
+	}
+
+	chainParams := w.ChainParams()
+	feeSatPerKb := txrules.DefaultRelayFeePerKb
+
+	addr, err := btcutil.DecodeAddress(cmd.ToAddress, chainParams)
+	if err != nil {
+		return nil, fmt.Errorf("cannot decode address: %s", err)
+	}
+
+	pkScript, err := txscript.PayToAddrScript(addr)
+	if err != nil {
+		return nil, fmt.Errorf("cannot create txout script: %s", err)
+	}
+
+	baScript, err := txscript.BidAskScript(cmd.Ratio)
+	if err != nil {
+		return nil, fmt.Errorf("cannot create txout script: %s", err)
+	}
+
+	/* build outputs */
+	outputs := []*wire.TxOut{
+		wire.NewTxOut(0, baScript),
+		wire.NewTxOut(int64(maxspend), pkScript),
+	}
+	txHash, err := w.SendOutputs(outputs, account, minConf, feeSatPerKb)
+
+	if err != nil {
+		if err == txrules.ErrAmountNegative {
+			return "", ErrNeedPositiveAmount
+		}
+		if waddrmgr.IsError(err, waddrmgr.ErrLocked) {
+			return "", &ErrWalletUnlockNeeded
+		}
+		switch err.(type) {
+		case btcjson.RPCError:
+			return "", err
+		}
+
+		return "", &btcjson.RPCError{
+			Code:    btcjson.ErrRPCInternal.Code,
+			Message: err.Error(),
+		}
+	}
+
+	txHashStr := txHash.String()
+	log.Infof("Successfully sent bidding command %v", txHashStr)
+	return txHashStr, nil
+}
+
+// askFrom handles
+func askFrom(icmd interface{}, w *wallet.Wallet, chainClient *chain.RPCClient) (interface{}, error) {
+	return nil, nil
 }
 
 // sendFrom handles a sendfrom RPC request by creating a new transaction

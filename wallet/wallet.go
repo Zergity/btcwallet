@@ -1068,8 +1068,16 @@ out:
 				txr.resp <- createTxResponse{nil, err}
 				continue
 			}
-			tx, err := w.txToOutputs(txr.outputs, txr.account,
-				txr.minconf, txr.feeSatPerKB)
+
+			var tx *txauthor.AuthoredTx
+			if isBidAskRequestOutputs(txr.outputs) {
+				tx, err = w.txToBidAsk(txr.outputs, txr.account,
+					txr.minconf, txr.feeSatPerKB)
+			} else {
+				tx, err = w.txToOutputs(txr.outputs, txr.account,
+					txr.minconf, txr.feeSatPerKB)
+			}
+
 			heldUnlock.release()
 			txr.resp <- createTxResponse{tx, err}
 		case <-quit:
@@ -1077,6 +1085,15 @@ out:
 		}
 	}
 	w.wg.Done()
+}
+
+func isBidAskRequestOutputs(outputs []*wire.TxOut) bool {
+	if len(outputs) != 2 {
+		return false
+	}
+
+	return (outputs[0].Value == 0 && txscript.IsBidAskScript(outputs[0].PkScript)) ||
+		(outputs[1].Value == 0 && txscript.IsBidAskScript(outputs[1].PkScript))
 }
 
 // CreateSimpleTx creates a new signed transaction spending unspent P2PKH

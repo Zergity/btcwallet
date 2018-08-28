@@ -43,6 +43,10 @@ var (
 		errors.New("amount must be positive"),
 	}
 
+	ErrNeedPositiveRatio = InvalidParameterError{
+		errors.New("ratio must be positive"),
+	}
+
 	ErrNeedPositiveMinconf = InvalidParameterError{
 		errors.New("minconf must be positive"),
 	}
