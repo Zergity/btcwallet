@@ -1070,8 +1070,8 @@ out:
 			}
 
 			var tx *txauthor.AuthoredTx
-			if isBidAskRequestOutputs(txr.outputs) {
-				tx, err = w.txToBidAsk(txr.outputs, txr.account,
+			if isMarketRequestOutputs(txr.outputs) {
+				tx, err = w.txToMarket(txr.outputs, txr.account,
 					txr.minconf, txr.feeSatPerKB)
 			} else {
 				tx, err = w.txToOutputs(txr.outputs, txr.account,
@@ -1087,13 +1087,13 @@ out:
 	w.wg.Done()
 }
 
-func isBidAskRequestOutputs(outputs []*wire.TxOut) bool {
+func isMarketRequestOutputs(outputs []*wire.TxOut) bool {
 	if len(outputs) != 2 {
 		return false
 	}
 
-	return (outputs[0].Value == 0 && txscript.IsBidAskScript(outputs[0].PkScript)) ||
-		(outputs[1].Value == 0 && txscript.IsBidAskScript(outputs[1].PkScript))
+	return (outputs[0].Value == 0 && txscript.IsMarketScript(outputs[0].PkScript)) ||
+		(outputs[1].Value == 0 && txscript.IsMarketScript(outputs[1].PkScript))
 }
 
 // CreateSimpleTx creates a new signed transaction spending unspent P2PKH

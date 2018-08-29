@@ -96,16 +96,16 @@ func (s secretSource) GetScript(addr btcutil.Address) ([]byte, error) {
 	return msa.Script()
 }
 
-// txToBidAsk creates a signed transaction which includes each output from
+// txToMarket creates a signed transaction which includes each output from
 // outputs.  Previous outputs to reedeem are chosen from the passed account's
 // UTXO set and minconf policy. An additional output may be added to return
 // change to the wallet.  An appropriate fee is included based on the wallet's
 // current relay fee.  The wallet must be unlocked to create the transaction.
-func (w *Wallet) txToBidAsk(outputs []*wire.TxOut, account uint32,
+func (w *Wallet) txToMarket(outputs []*wire.TxOut, account uint32,
 	minconf int32, feeSatPerKb btcutil.Amount) (tx *txauthor.AuthoredTx, err error) {
 
 	// simple output structure first
-	isYDR := outputs[0].Value == 0 && txscript.IsBidAskScript(outputs[0].PkScript)
+	isYDR := outputs[0].Value == 0 && txscript.IsMarketScript(outputs[0].PkScript)
 	// isBid := isYDR
 
 	chainClient, err := w.requireChainClient()
@@ -128,7 +128,7 @@ func (w *Wallet) txToBidAsk(outputs []*wire.TxOut, account uint32,
 		}
 
 		inputSource := makeInputSource(eligible)
-		tx, err = txauthor.NewUnsignedBidAskCommand(outputs, inputSource)
+		tx, err = txauthor.NewUnsignedMarketCommand(outputs, inputSource)
 		if err != nil {
 			return err
 		}

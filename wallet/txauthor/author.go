@@ -152,8 +152,8 @@ func NewUnsignedTransaction(outputs []*wire.TxOut, relayFeePerKb btcutil.Amount,
 	}
 }
 
-// NewUnsignedBidAskCommand does
-func NewUnsignedBidAskCommand(outputs []*wire.TxOut, fetchInputs InputSource) (*AuthoredTx, error) {
+// NewUnsignedMarketCommand does
+func NewUnsignedMarketCommand(outputs []*wire.TxOut, fetchInputs InputSource) (*AuthoredTx, error) {
 	targetAmount := h.SumOutputValues(outputs)
 
 	inputAmount, inputs, inputValues, scripts, err := fetchInputs(targetAmount)

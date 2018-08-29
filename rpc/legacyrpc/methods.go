@@ -1532,7 +1532,7 @@ func bidFrom(icmd interface{}, w *wallet.Wallet, chainClient *chain.RPCClient) (
 		return nil, fmt.Errorf("cannot create txout script: %s", err)
 	}
 
-	baScript, err := txscript.BidAskScript(cmd.Ratio)
+	baScript, err := txscript.MarketScript(cmd.Ratio)
 	if err != nil {
 		return nil, fmt.Errorf("cannot create txout script: %s", err)
 	}
