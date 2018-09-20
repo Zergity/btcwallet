@@ -56,6 +56,7 @@ type TransactionOutput struct {
 	//TxExpiry        uint32
 	ContainingBlock BlockIdentity
 	ReceiveTime     time.Time
+	IsYDR           bool
 }
 
 // OutputRedeemer identifies the transaction input which redeems an output.

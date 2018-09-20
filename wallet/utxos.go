@@ -80,6 +80,7 @@ func (w *Wallet) UnspentOutputs(policy OutputSelectionPolicy) ([]*TransactionOut
 				OutputKind:      outputSource,
 				ContainingBlock: BlockIdentity(output.Block),
 				ReceiveTime:     output.Received,
+				IsYDR:           output.IsYDR,
 			}
 			outputResults = append(outputResults, result)
 		}

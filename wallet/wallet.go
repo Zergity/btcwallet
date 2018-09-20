@@ -1068,8 +1068,16 @@ out:
 				txr.resp <- createTxResponse{nil, err}
 				continue
 			}
-			tx, err := w.txToOutputs(txr.outputs, txr.account,
-				txr.minconf, txr.feeSatPerKB)
+
+			var tx *txauthor.AuthoredTx
+			if txscript.IsMarket(txr.outputs) {
+				tx, err = w.txToMarket(txr.outputs, txr.account,
+					txr.minconf, txr.feeSatPerKB)
+			} else {
+				tx, err = w.txToOutputs(txr.outputs, txr.account,
+					txr.minconf, txr.feeSatPerKB)
+			}
+
 			heldUnlock.release()
 			txr.resp <- createTxResponse{tx, err}
 		case <-quit:
@@ -1363,13 +1371,13 @@ func (w *Wallet) AccountAddresses(account uint32) (addrs []btcutil.Address, err 
 // a UTXO must be in a block.  If confirmations is 1 or greater,
 // the balance will be calculated based on how many how many blocks
 // include a UTXO.
-func (w *Wallet) CalculateBalance(confirms int32) (btcutil.Amount, error) {
+func (w *Wallet) CalculateBalance(confirms int32, isYDR bool) (btcutil.Amount, error) {
 	var balance btcutil.Amount
 	err := walletdb.View(w.db, func(tx walletdb.ReadTx) error {
 		txmgrNs := tx.ReadBucket(wtxmgrNamespaceKey)
 		var err error
 		blk := w.Manager.SyncedTo()
-		balance, err = w.TxStore.Balance(txmgrNs, confirms, blk.Height)
+		balance, err = w.TxStore.Balance(txmgrNs, confirms, blk.Height, isYDR)
 		return err
 	})
 	return balance, err
@@ -1389,7 +1397,7 @@ type Balances struct {
 // This function is much slower than it needs to be since transactions outputs
 // are not indexed by the accounts they credit to, and all unspent transaction
 // outputs must be iterated.
-func (w *Wallet) CalculateAccountBalances(account uint32, confirms int32) (Balances, error) {
+func (w *Wallet) CalculateAccountBalances(account uint32, confirms int32, isYDR bool) (Balances, error) {
 	var bals Balances
 	err := walletdb.View(w.db, func(tx walletdb.ReadTx) error {
 		addrmgrNs := tx.ReadBucket(waddrmgrNamespaceKey)
@@ -1405,6 +1413,10 @@ func (w *Wallet) CalculateAccountBalances(account uint32, confirms int32) (Balan
 		}
 		for i := range unspent {
 			output := &unspent[i]
+
+			if output.IsYDR != isYDR {
+				continue
+			}
 
 			var outputAcct uint32
 			_, addrs, _, err := txscript.ExtractPkScriptAddrs(
@@ -2340,7 +2352,7 @@ func (s creditSlice) Swap(i, j int) {
 // contained within it will be considered.  If we know nothing about a
 // transaction an empty array will be returned.
 func (w *Wallet) ListUnspent(minconf, maxconf int32,
-	addresses map[string]struct{}) ([]*btcjson.ListUnspentResult, error) {
+	addresses map[string]struct{}, isYDR bool) ([]*btcjson.ListUnspentResult, error) {
 
 	var results []*btcjson.ListUnspentResult
 	err := walletdb.View(w.db, func(tx walletdb.ReadTx) error {
@@ -2361,6 +2373,10 @@ func (w *Wallet) ListUnspent(minconf, maxconf int32,
 		results = make([]*btcjson.ListUnspentResult, 0, len(unspent))
 		for i := range unspent {
 			output := unspent[i]
+
+			if output.IsYDR != isYDR {
+				continue
+			}
 
 			// Outputs with fewer confirmations than the minimum or more
 			// confs than the maximum are excluded.

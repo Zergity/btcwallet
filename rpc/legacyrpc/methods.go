@@ -80,6 +80,7 @@ var rpcHandlers = map[string]struct {
 	"getaccountaddress":      {handler: getAccountAddress},
 	"getaddressesbyaccount":  {handler: getAddressesByAccount},
 	"getbalance":             {handler: getBalance},
+	"getbalance1":            {handler: getBalance1},
 	"getbestblockhash":       {handler: getBestBlockHash},
 	"getblockcount":          {handler: getBlockCount},
 	"getinfo":                {handlerWithChain: getInfo},
@@ -98,10 +99,15 @@ var rpcHandlers = map[string]struct {
 	"listsinceblock":         {handlerWithChain: listSinceBlock},
 	"listtransactions":       {handler: listTransactions},
 	"listunspent":            {handler: listUnspent},
+	"listunspent1":           {handler: listUnspent1},
 	"lockunspent":            {handler: lockUnspent},
+	"bidfrom":                {handlerWithChain: bidFrom},
+	"askfrom":                {handlerWithChain: askFrom},
 	"sendfrom":               {handlerWithChain: sendFrom},
+	"sendfrom1":              {handlerWithChain: sendFrom1},
 	"sendmany":               {handler: sendMany},
 	"sendtoaddress":          {handler: sendToAddress},
+	"sendtoaddress1":         {handler: sendToAddress1},
 	"settxfee":               {handler: setTxFee},
 	"signmessage":            {handler: signMessage},
 	"signrawtransaction":     {handlerWithChain: signRawTransaction},
@@ -442,7 +448,7 @@ func getBalance(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 		accountName = *cmd.Account
 	}
 	if accountName == "*" {
-		balance, err = w.CalculateBalance(int32(*cmd.MinConf))
+		balance, err = w.CalculateBalance(int32(*cmd.MinConf), false)
 		if err != nil {
 			return nil, err
 		}
@@ -452,7 +458,39 @@ func getBalance(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 		if err != nil {
 			return nil, err
 		}
-		bals, err := w.CalculateAccountBalances(account, int32(*cmd.MinConf))
+		bals, err := w.CalculateAccountBalances(account, int32(*cmd.MinConf), false)
+		if err != nil {
+			return nil, err
+		}
+		balance = bals.Spendable
+	}
+	return balance.ToBTC(), nil
+}
+
+// getBalance1 handles a getbalance request by returning the balance for an
+// account (wallet), or an error if the requested account does not
+// exist.
+func getBalance1(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
+	cmd := icmd.(*btcjson.GetBalance1Cmd)
+
+	var balance btcutil.Amount
+	var err error
+	accountName := "*"
+	if cmd.Account != nil {
+		accountName = *cmd.Account
+	}
+	if accountName == "*" {
+		balance, err = w.CalculateBalance(int32(*cmd.MinConf), true)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		var account uint32
+		account, err = w.AccountNumber(waddrmgr.KeyScopeBIP0044, accountName)
+		if err != nil {
+			return nil, err
+		}
+		bals, err := w.CalculateAccountBalances(account, int32(*cmd.MinConf), true)
 		if err != nil {
 			return nil, err
 		}
@@ -497,7 +535,7 @@ func getInfo(icmd interface{}, w *wallet.Wallet, chainClient *chain.RPCClient) (
 		return nil, err
 	}
 
-	bal, err := w.CalculateBalance(1)
+	bal, err := w.CalculateBalance(1, false)
 	if err != nil {
 		return nil, err
 	}
@@ -592,7 +630,7 @@ func getUnconfirmedBalance(icmd interface{}, w *wallet.Wallet) (interface{}, err
 	if err != nil {
 		return nil, err
 	}
-	bals, err := w.CalculateAccountBalances(account, 1)
+	bals, err := w.CalculateAccountBalances(account, 1, false)
 	if err != nil {
 		return nil, err
 	}
@@ -1319,7 +1357,27 @@ func listUnspent(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 		}
 	}
 
-	return w.ListUnspent(int32(*cmd.MinConf), int32(*cmd.MaxConf), addresses)
+	return w.ListUnspent(int32(*cmd.MinConf), int32(*cmd.MaxConf), addresses, false)
+}
+
+// listUnspent handles the listunspent command.
+func listUnspent1(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
+	cmd := icmd.(*btcjson.ListUnspent1Cmd)
+
+	var addresses map[string]struct{}
+	if cmd.Addresses != nil {
+		addresses = make(map[string]struct{})
+		// confirm that all of them are good:
+		for _, as := range *cmd.Addresses {
+			a, err := decodeAddress(as, w.ChainParams())
+			if err != nil {
+				return nil, err
+			}
+			addresses[a.EncodeAddress()] = struct{}{}
+		}
+	}
+
+	return w.ListUnspent(int32(*cmd.MinConf), int32(*cmd.MaxConf), addresses, true)
 }
 
 // lockUnspent handles the lockunspent command.
@@ -1350,8 +1408,14 @@ func lockUnspent(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 // strings to amounts.  This is used to create the outputs to include in newly
 // created transactions from a JSON object describing the output destinations
 // and amounts.
-func makeOutputs(pairs map[string]btcutil.Amount, chainParams *chaincfg.Params) ([]*wire.TxOut, error) {
-	outputs := make([]*wire.TxOut, 0, len(pairs))
+func makeOutputs(pairs, pairs1 map[string]btcutil.Amount, chainParams *chaincfg.Params) ([]*wire.TxOut, error) {
+	length := len(pairs)
+	if pairs1 != nil && len(pairs1) > 0 {
+		length += len(pairs1)
+	}
+
+	outputs := make([]*wire.TxOut, 0, length)
+
 	for addrStr, amt := range pairs {
 		addr, err := btcutil.DecodeAddress(addrStr, chainParams)
 		if err != nil {
@@ -1365,16 +1429,36 @@ func makeOutputs(pairs map[string]btcutil.Amount, chainParams *chaincfg.Params) 
 
 		outputs = append(outputs, wire.NewTxOut(int64(amt), pkScript))
 	}
+
+	if pairs1 != nil && len(pairs1) > 0 {
+		// output separator
+		outputs = append(outputs, wire.NewTxOut(int64(0), nil))
+
+		for addrStr, amt := range pairs1 {
+			addr, err := btcutil.DecodeAddress(addrStr, chainParams)
+			if err != nil {
+				return nil, fmt.Errorf("cannot decode address: %s", err)
+			}
+
+			pkScript, err := txscript.PayToAddrScript(addr)
+			if err != nil {
+				return nil, fmt.Errorf("cannot create txout script: %s", err)
+			}
+
+			outputs = append(outputs, wire.NewTxOut(int64(amt), pkScript))
+		}
+	}
+
 	return outputs, nil
 }
 
 // sendPairs creates and sends payment transactions.
 // It returns the transaction hash in string format upon success
 // All errors are returned in btcjson.RPCError format
-func sendPairs(w *wallet.Wallet, amounts map[string]btcutil.Amount,
+func sendPairs(w *wallet.Wallet, amounts, amounts1 map[string]btcutil.Amount,
 	account uint32, minconf int32, feeSatPerKb btcutil.Amount) (string, error) {
 
-	outputs, err := makeOutputs(amounts, w.ChainParams())
+	outputs, err := makeOutputs(amounts, amounts1, w.ChainParams())
 	if err != nil {
 		return "", err
 	}
@@ -1404,6 +1488,88 @@ func sendPairs(w *wallet.Wallet, amounts map[string]btcutil.Amount,
 
 func isNilOrEmpty(s *string) bool {
 	return s == nil || *s == ""
+}
+
+// bidFrom handles
+func bidFrom(icmd interface{}, w *wallet.Wallet, chainClient *chain.RPCClient) (interface{}, error) {
+	cmd := icmd.(*btcjson.BidFromCmd)
+
+	account, err := w.AccountNumber(
+		waddrmgr.KeyScopeBIP0044, cmd.FromAccount,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check that signed integer parameters are positive.
+	if cmd.MaxSpend < 0 {
+		return nil, ErrNeedPositiveAmount
+	}
+	// Check that signed float parameters are positive.
+	if cmd.Ratio < 0 {
+		return nil, ErrNeedPositiveRatio
+	}
+	minConf := int32(*cmd.MinConf)
+	if minConf < 0 {
+		return nil, ErrNeedPositiveMinconf
+	}
+	// Create map of address and amount pairs.
+	maxspend, err := btcutil.NewAmount(cmd.MaxSpend)
+	if err != nil {
+		return nil, err
+	}
+
+	chainParams := w.ChainParams()
+	feeSatPerKb := txrules.DefaultRelayFeePerKb
+
+	addr, err := btcutil.DecodeAddress(cmd.ToAddress, chainParams)
+	if err != nil {
+		return nil, fmt.Errorf("cannot decode address: %s", err)
+	}
+
+	pkScript, err := txscript.PayToAddrScript(addr)
+	if err != nil {
+		return nil, fmt.Errorf("cannot create txout script: %s", err)
+	}
+
+	baScript, err := txscript.MarketScript(cmd.Ratio)
+	if err != nil {
+		return nil, fmt.Errorf("cannot create txout script: %s", err)
+	}
+
+	/* build outputs */
+	outputs := []*wire.TxOut{
+		wire.NewTxOut(0, baScript),
+		wire.NewTxOut(int64(maxspend), pkScript),
+	}
+	txHash, err := w.SendOutputs(outputs, account, minConf, feeSatPerKb)
+
+	if err != nil {
+		if err == txrules.ErrAmountNegative {
+			return "", ErrNeedPositiveAmount
+		}
+		if waddrmgr.IsError(err, waddrmgr.ErrLocked) {
+			return "", &ErrWalletUnlockNeeded
+		}
+		switch err.(type) {
+		case btcjson.RPCError:
+			return "", err
+		}
+
+		return "", &btcjson.RPCError{
+			Code:    btcjson.ErrRPCInternal.Code,
+			Message: err.Error(),
+		}
+	}
+
+	txHashStr := txHash.String()
+	log.Infof("Successfully sent bidding command %v", txHashStr)
+	return txHashStr, nil
+}
+
+// askFrom handles
+func askFrom(icmd interface{}, w *wallet.Wallet, chainClient *chain.RPCClient) (interface{}, error) {
+	return nil, nil
 }
 
 // sendFrom handles a sendfrom RPC request by creating a new transaction
@@ -1447,7 +1613,52 @@ func sendFrom(icmd interface{}, w *wallet.Wallet, chainClient *chain.RPCClient) 
 		cmd.ToAddress: amt,
 	}
 
-	return sendPairs(w, pairs, account, minConf,
+	return sendPairs(w, pairs, nil, account, minConf,
+		txrules.DefaultRelayFeePerKb)
+}
+
+// sendFrom1 handles a sendfrom RPC request by creating a new transaction
+// spending unspent transaction outputs for a wallet to another payment
+// address.  Leftover inputs not sent to the payment address or a fee for
+// the miner are sent back to a new address in the wallet.  Upon success,
+// the TxID for the created transaction is returned.
+func sendFrom1(icmd interface{}, w *wallet.Wallet, chainClient *chain.RPCClient) (interface{}, error) {
+	cmd := icmd.(*btcjson.SendFrom1Cmd)
+
+	// Transaction comments are not yet supported.  Error instead of
+	// pretending to save them.
+	if !isNilOrEmpty(cmd.Comment) || !isNilOrEmpty(cmd.CommentTo) {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCUnimplemented,
+			Message: "Transaction comments are not yet supported",
+		}
+	}
+
+	account, err := w.AccountNumber(
+		waddrmgr.KeyScopeBIP0044, cmd.FromAccount,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check that signed integer parameters are positive.
+	if cmd.Amount < 0 {
+		return nil, ErrNeedPositiveAmount
+	}
+	minConf := int32(*cmd.MinConf)
+	if minConf < 0 {
+		return nil, ErrNeedPositiveMinconf
+	}
+	// Create map of address and amount pairs.
+	amt, err := btcutil.NewAmount(cmd.Amount)
+	if err != nil {
+		return nil, err
+	}
+	pairs := map[string]btcutil.Amount{
+		cmd.ToAddress: amt,
+	}
+
+	return sendPairs(w, nil, pairs, account, minConf,
 		txrules.DefaultRelayFeePerKb)
 }
 
@@ -1489,7 +1700,7 @@ func sendMany(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 		pairs[k] = amt
 	}
 
-	return sendPairs(w, pairs, account, minConf, txrules.DefaultRelayFeePerKb)
+	return sendPairs(w, pairs, nil, account, minConf, txrules.DefaultRelayFeePerKb)
 }
 
 // sendToAddress handles a sendtoaddress RPC request by creating a new
@@ -1525,7 +1736,44 @@ func sendToAddress(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 	}
 
 	// sendtoaddress always spends from the default account, this matches bitcoind
-	return sendPairs(w, pairs, waddrmgr.DefaultAccountNum, 1,
+	return sendPairs(w, pairs, nil, waddrmgr.DefaultAccountNum, 1,
+		txrules.DefaultRelayFeePerKb)
+}
+
+// sendToAddress handles a sendtoaddress RPC request by creating a new
+// transaction spending unspent transaction outputs for a wallet to another
+// payment address.  Leftover inputs not sent to the payment address or a fee
+// for the miner are sent back to a new address in the wallet.  Upon success,
+// the TxID for the created transaction is returned.
+func sendToAddress1(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
+	cmd := icmd.(*btcjson.SendToAddress1Cmd)
+
+	// Transaction comments are not yet supported.  Error instead of
+	// pretending to save them.
+	if !isNilOrEmpty(cmd.Comment) || !isNilOrEmpty(cmd.CommentTo) {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCUnimplemented,
+			Message: "Transaction comments are not yet supported",
+		}
+	}
+
+	amt, err := btcutil.NewAmount(cmd.Amount)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check that signed integer parameters are positive.
+	if amt < 0 {
+		return nil, ErrNeedPositiveAmount
+	}
+
+	// Mock up map of address and amount pairs.
+	pairs := map[string]btcutil.Amount{
+		cmd.Address: amt,
+	}
+
+	// sendtoaddress always spends from the default account, this matches bitcoind
+	return sendPairs(w, nil, pairs, waddrmgr.DefaultAccountNum, 1,
 		txrules.DefaultRelayFeePerKb)
 }
 

@@ -96,13 +96,17 @@ func (s secretSource) GetScript(addr btcutil.Address) ([]byte, error) {
 	return msa.Script()
 }
 
-// txToOutputs creates a signed transaction which includes each output from
+// txToMarket creates a signed transaction which includes each output from
 // outputs.  Previous outputs to reedeem are chosen from the passed account's
 // UTXO set and minconf policy. An additional output may be added to return
 // change to the wallet.  An appropriate fee is included based on the wallet's
 // current relay fee.  The wallet must be unlocked to create the transaction.
-func (w *Wallet) txToOutputs(outputs []*wire.TxOut, account uint32,
+func (w *Wallet) txToMarket(outputs []*wire.TxOut, account uint32,
 	minconf int32, feeSatPerKb btcutil.Amount) (tx *txauthor.AuthoredTx, err error) {
+
+	// simple output structure first
+	isYDR := outputs[0].Value == 0 && txscript.IsMarketScript(outputs[0].PkScript)
+	// isBid := isYDR
 
 	chainClient, err := w.requireChainClient()
 	if err != nil {
@@ -118,30 +122,13 @@ func (w *Wallet) txToOutputs(outputs []*wire.TxOut, account uint32,
 			return err
 		}
 
-		eligible, err := w.findEligibleOutputs(dbtx, account, minconf, bs)
+		eligible, err := w.findEligibleOutputs(dbtx, account, minconf, bs, isYDR)
 		if err != nil {
 			return err
 		}
 
 		inputSource := makeInputSource(eligible)
-		changeSource := func() ([]byte, error) {
-			// Derive the change output script.  As a hack to allow
-			// spending from the imported account, change addresses
-			// are created from account 0.
-			var changeAddr btcutil.Address
-			var err error
-			if account == waddrmgr.ImportedAddrAccount {
-				changeAddr, err = w.newChangeAddress(addrmgrNs, 0)
-			} else {
-				changeAddr, err = w.newChangeAddress(addrmgrNs, account)
-			}
-			if err != nil {
-				return nil, err
-			}
-			return txscript.PayToAddrScript(changeAddr)
-		}
-		tx, err = txauthor.NewUnsignedTransaction(outputs, feeSatPerKb,
-			inputSource, changeSource)
+		tx, err = txauthor.NewUnsignedMarketCommand(outputs, inputSource)
 		if err != nil {
 			return err
 		}
@@ -173,7 +160,80 @@ func (w *Wallet) txToOutputs(outputs []*wire.TxOut, account uint32,
 	return tx, nil
 }
 
-func (w *Wallet) findEligibleOutputs(dbtx walletdb.ReadTx, account uint32, minconf int32, bs *waddrmgr.BlockStamp) ([]wtxmgr.Credit, error) {
+// txToOutputs creates a signed transaction which includes each output from
+// outputs.  Previous outputs to reedeem are chosen from the passed account's
+// UTXO set and minconf policy. An additional output may be added to return
+// change to the wallet.  An appropriate fee is included based on the wallet's
+// current relay fee.  The wallet must be unlocked to create the transaction.
+func (w *Wallet) txToOutputs(outputs []*wire.TxOut, account uint32,
+	minconf int32, feeSatPerKb btcutil.Amount) (tx *txauthor.AuthoredTx, err error) {
+
+	// simple output structure first
+	isYDR := len(outputs) > 0 && outputs[0].Value == 0
+
+	chainClient, err := w.requireChainClient()
+	if err != nil {
+		return nil, err
+	}
+
+	err = walletdb.Update(w.db, func(dbtx walletdb.ReadWriteTx) error {
+		addrmgrNs := dbtx.ReadWriteBucket(waddrmgrNamespaceKey)
+
+		// Get current block's height and hash.
+		bs, err := chainClient.BlockStamp()
+		if err != nil {
+			return err
+		}
+
+		eligible, err := w.findEligibleOutputs(dbtx, account, minconf, bs, isYDR)
+		if err != nil {
+			return err
+		}
+
+		inputSource := makeInputSource(eligible)
+		changeSource := func() ([]byte, error) {
+			// Derive the change output script.  As a hack to allow
+			// spending from the imported account, change addresses
+			// are created from account 0.
+			var changeAddr btcutil.Address
+			var err error
+			if account == waddrmgr.ImportedAddrAccount {
+				changeAddr, err = w.newChangeAddress(addrmgrNs, 0)
+			} else {
+				changeAddr, err = w.newChangeAddress(addrmgrNs, account)
+			}
+			if err != nil {
+				return nil, err
+			}
+			return txscript.PayToAddrScript(changeAddr)
+		}
+		tx, err = txauthor.NewUnsignedTransaction(outputs, feeSatPerKb,
+			inputSource, changeSource)
+		if err != nil {
+			return err
+		}
+
+		return tx.AddAllInputScripts(secretSource{w.Manager, addrmgrNs})
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	err = validateMsgTx(tx.Tx, tx.PrevScripts, tx.PrevInputValues)
+	if err != nil {
+		return nil, err
+	}
+
+	if tx.ChangeIndex >= 0 && account == waddrmgr.ImportedAddrAccount {
+		changeAmount := btcutil.Amount(tx.Tx.TxOut[tx.ChangeIndex].Value)
+		log.Warnf("Spend from imported account produced change: moving"+
+			" %v from imported account into default account.", changeAmount)
+	}
+
+	return tx, nil
+}
+
+func (w *Wallet) findEligibleOutputs(dbtx walletdb.ReadTx, account uint32, minconf int32, bs *waddrmgr.BlockStamp, isYDR bool) ([]wtxmgr.Credit, error) {
 	addrmgrNs := dbtx.ReadBucket(waddrmgrNamespaceKey)
 	txmgrNs := dbtx.ReadBucket(wtxmgrNamespaceKey)
 
@@ -190,6 +250,10 @@ func (w *Wallet) findEligibleOutputs(dbtx walletdb.ReadTx, account uint32, minco
 	eligible := make([]wtxmgr.Credit, 0, len(unspent))
 	for i := range unspent {
 		output := &unspent[i]
+
+		if output.IsYDR != isYDR {
+			continue
+		}
 
 		// Only include this output if it meets the required number of
 		// confirmations.  Coinbase transactions must have have reached
