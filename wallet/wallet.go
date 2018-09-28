@@ -2339,7 +2339,7 @@ func (s creditSlice) Swap(i, j int) {
 // minconf, less than maxconf and if addresses is populated only the addresses
 // contained within it will be considered.  If we know nothing about a
 // transaction an empty array will be returned.
-func (w *Wallet) ListUnspent(minconf, maxconf int32,
+func (w *Wallet) ListUnspent(tokenConf string, minconf, maxconf int32,
 	addresses map[string]struct{}) ([]*btcjson.ListUnspentResult, error) {
 
 	var results []*btcjson.ListUnspentResult
@@ -2354,6 +2354,14 @@ func (w *Wallet) ListUnspent(minconf, maxconf int32,
 		if err != nil {
 			return err
 		}
+
+		// filter the unwanted token
+		if tokenConf == wire.NDR.String() {
+			unspent = wtxmgr.FilterCredits(unspent, wire.NDR)
+		} else {
+			unspent = wtxmgr.FilterCredits(unspent, wire.STB)
+		}
+
 		sort.Sort(sort.Reverse(creditSlice(unspent)))
 
 		defaultAccountName := "default"

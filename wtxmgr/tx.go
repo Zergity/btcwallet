@@ -126,6 +126,7 @@ type Credit struct {
 	BlockMeta
 	Amount       btcutil.Amount
 	PkScript     []byte
+	TokenID      wire.TokenIdentity
 	Received     time.Time
 	FromCoinBase bool
 }
@@ -738,6 +739,7 @@ func (s *Store) UnspentOutputs(ns walletdb.ReadBucket) ([]Credit, error) {
 			},
 			Amount:       btcutil.Amount(txOut.Value),
 			PkScript:     txOut.PkScript,
+			TokenID:      txOut.TokenID,
 			Received:     rec.Received,
 			FromCoinBase: blockchain.IsCoinBaseTx(&rec.MsgTx),
 		}
@@ -781,6 +783,7 @@ func (s *Store) UnspentOutputs(ns walletdb.ReadBucket) ([]Credit, error) {
 			},
 			Amount:       btcutil.Amount(txOut.Value),
 			PkScript:     txOut.PkScript,
+			TokenID:      txOut.TokenID,
 			Received:     rec.Received,
 			FromCoinBase: blockchain.IsCoinBaseTx(&rec.MsgTx),
 		}
@@ -796,6 +799,17 @@ func (s *Store) UnspentOutputs(ns walletdb.ReadBucket) ([]Credit, error) {
 	}
 
 	return unspent, nil
+}
+
+// FilterCredits returns
+func FilterCredits(credits []Credit, tokenID wire.TokenIdentity) []Credit {
+	ret := credits[:0]
+	for _, cred := range credits {
+		if cred.TokenID == tokenID {
+			ret = append(ret, cred)
+		}
+	}
+	return ret
 }
 
 // Balance returns the spendable wallet balance (total value of all unspent
